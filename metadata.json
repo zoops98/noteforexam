@@ -1,0 +1,7 @@
+{
+  "name": "영어 필기",
+  "description": "AI-powered English exam study note generator by Zoops. Upload a screenshot of an exam paper to get a detailed study note in HTML format.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
