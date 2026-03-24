@@ -5,8 +5,8 @@ const MODEL_NAME = "gemini-3-flash-preview";
 export type ExamMode = "Internal" | "Mock";
 
 export async function generateStudyNote(
-  imageBuffer: string, // base64
-  mimeType: string,
+  imageBuffers: string[], // array of base64 strings
+  mimeTypes: string[],
   mode: ExamMode,
   customApiKey?: string
 ): Promise<string> {
@@ -15,7 +15,8 @@ export async function generateStudyNote(
 
   const systemInstruction = `
 당신은 대한민국 고등학생을 위한 영어 학습 코치이자, 한국 입시형 필기 노트 제작 전문가이다.
-사용자가 제공한 영어 지문 자료를 바탕으로 대한민국 입시 환경에 최적화된 "영어 필기 노트"를 제작하라.
+사용자가 제공한 영어 지문 자료(하나 또는 여러 개의 이미지)를 바탕으로 대한민국 입시 환경에 최적화된 "영어 필기 노트"를 제작하라.
+여러 장의 이미지가 제공된 경우, 이를 하나의 연속된 지문이나 관련 문항들로 간주하여 통합된 분석 노트를 작성하라.
 
 중요:
 - 최종 출력 결과는 반드시 **하나의 HTML 전체 문서**여야 한다.
@@ -71,13 +72,13 @@ export async function generateStudyNote(
     contents: [
       {
         parts: [
-          { text: "분석할 이미지입니다. 위 지침에 따라 HTML 필기 노트를 생성해 주세요." },
-          {
+          { text: "분석할 이미지들입니다. 여러 장의 이미지가 제공된 경우, 이를 하나의 연속된 지문이나 관련 문항들로 간주하여 통합된 분석 노트를 생성해 주세요. 위 지침에 따라 HTML 필기 노트를 생성해 주세요." },
+          ...imageBuffers.map((buffer, index) => ({
             inlineData: {
-              data: imageBuffer.split(",")[1] || imageBuffer,
-              mimeType: mimeType,
+              data: buffer.split(",")[1] || buffer,
+              mimeType: mimeTypes[index] || "image/png",
             },
-          },
+          })),
         ],
       },
     ],

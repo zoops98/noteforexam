@@ -9,8 +9,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { generateStudyNote, ExamMode } from './services/geminiService';
 
 export default function App() {
-  const [image, setImage] = useState<string | null>(null);
-  const [mimeType, setMimeType] = useState<string>('');
+  const [images, setImages] = useState<string[]>([]);
+  const [mimeTypes, setMimeTypes] = useState<string[]>([]);
   const [mode, setMode] = useState<ExamMode>('Internal');
   const [loading, setLoading] = useState(false);
   const [resultHtml, setResultHtml] = useState<string | null>(null);
@@ -35,9 +35,9 @@ export default function App() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processFile(file);
+    const files = e.target.files;
+    if (files) {
+      Array.from(files).forEach(processFile);
     }
   };
 
@@ -47,10 +47,12 @@ export default function App() {
       return;
     }
     setError(null);
-    setMimeType(file.type);
+    
     const reader = new FileReader();
     reader.onload = (e) => {
-      setImage(e.target?.result as string);
+      const result = e.target?.result as string;
+      setImages(prev => [...prev, result]);
+      setMimeTypes(prev => [...prev, file.type]);
     };
     reader.readAsDataURL(file);
   };
@@ -67,8 +69,10 @@ export default function App() {
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) processFile(file);
+    const files = e.dataTransfer.files;
+    if (files) {
+      Array.from(files).forEach(processFile);
+    }
   };
 
   useEffect(() => {
@@ -89,12 +93,12 @@ export default function App() {
   };
 
   const handleGenerate = async () => {
-    if (!image) return;
+    if (images.length === 0) return;
     
     // Check for API key before generating
     if (window.aistudio && window.aistudio.hasSelectedApiKey) {
       const hasKey = await window.aistudio.hasSelectedApiKey();
-      if (!hasKey) {
+      if (!hasKey && !customApiKey) {
         await handleSelectKey();
         return;
       }
@@ -103,7 +107,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const html = await generateStudyNote(image, mimeType, mode, customApiKey);
+      const html = await generateStudyNote(images, mimeTypes, mode, customApiKey);
       // Clean up the response if it contains markdown code blocks
       const cleanedHtml = html.replace(/```html|```/g, '').trim();
       setResultHtml(cleanedHtml);
@@ -185,10 +189,10 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8 grid lg:grid-cols-2 gap-8 h-[calc(100vh-4rem)]">
+      <main className="max-w-7xl mx-auto px-6 py-8 grid lg:grid-cols-2 gap-8 h-[calc(100vh-4rem)] overflow-hidden">
         {/* Left Column: Input */}
-        <div className="flex flex-col gap-6 overflow-hidden">
-          <div className="flex-1 flex flex-col gap-4">
+        <div className="flex flex-col gap-6 h-full min-h-0">
+          <div className="flex-1 flex flex-col gap-4 min-h-0">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">지문 이미지 업로드</h2>
               <span className="text-xs text-gray-400">Ctrl+V로 붙여넣기 가능</span>
@@ -197,24 +201,40 @@ export default function App() {
             <div 
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
-              className={`flex-1 border-2 border-dashed rounded-2xl transition-all flex flex-col items-center justify-center p-8 text-center relative overflow-hidden ${image ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/10'}`}
+              className={`flex-1 border-2 border-dashed rounded-2xl transition-all flex flex-col items-center justify-center p-4 text-center relative overflow-hidden ${images.length > 0 ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/10'}`}
             >
-              {image ? (
-                <div className="relative w-full h-full group">
-                  <img src={image} alt="Uploaded" className="w-full h-full object-contain rounded-lg shadow-sm" />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <button 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="bg-white text-black px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100"
-                    >
-                      변경하기
-                    </button>
-                    <button 
-                      onClick={() => setImage(null)}
-                      className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-600"
-                    >
-                      삭제
-                    </button>
+              {images.length > 0 ? (
+                <div className="w-full h-full flex flex-col gap-4">
+                  <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="grid grid-cols-2 gap-4">
+                      {images.map((img, idx) => (
+                        <div key={idx} className="relative aspect-[3/4] group border border-emerald-100 rounded-lg overflow-hidden bg-white">
+                          <img src={img} alt={`Uploaded ${idx}`} className="w-full h-full object-contain" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <button 
+                              onClick={() => {
+                                setImages(prev => prev.filter((_, i) => i !== idx));
+                                setMimeTypes(prev => prev.filter((_, i) => i !== idx));
+                              }}
+                              className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 shadow-lg"
+                              title="삭제"
+                            >
+                              <X className="w-5 h-5" />
+                            </button>
+                          </div>
+                          <div className="absolute top-2 left-2 bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
+                            {idx + 1}
+                          </div>
+                        </div>
+                      ))}
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="aspect-[3/4] border-2 border-dashed border-emerald-200 rounded-lg flex flex-col items-center justify-center gap-2 hover:bg-emerald-50 transition-colors text-emerald-600"
+                      >
+                        <Upload className="w-6 h-6" />
+                        <span className="text-xs font-medium">추가하기</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -240,14 +260,15 @@ export default function App() {
                 onChange={handleFileChange} 
                 className="hidden" 
                 accept="image/*"
+                multiple
               />
             </div>
           </div>
 
           <button 
             onClick={handleGenerate}
-            disabled={!image || loading}
-            className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-xl ${!image || loading ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200 active:scale-[0.98]'}`}
+            disabled={images.length === 0 || loading}
+            className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-xl flex-shrink-0 ${images.length === 0 || loading ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200 active:scale-[0.98]'}`}
           >
             {loading ? (
               <>
