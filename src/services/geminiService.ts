@@ -8,15 +8,20 @@ export async function generateStudyNote(
   imageBuffers: string[], // array of base64 strings
   mimeTypes: string[],
   mode: ExamMode,
-  customApiKey?: string
+  customApiKey?: string,
+  textInput?: string
 ): Promise<string> {
   const apiKey = customApiKey || (process.env.GEMINI_API_KEY as string);
   const ai = new GoogleGenAI({ apiKey });
 
   const systemInstruction = `
 당신은 대한민국 고등학생을 위한 영어 학습 코치이자, 한국 입시형 필기 노트 제작 전문가이다.
-사용자가 제공한 영어 지문 자료(하나 또는 여러 개의 이미지)를 바탕으로 대한민국 입시 환경에 최적화된 "영어 필기 노트"를 제작하라.
-여러 장의 이미지가 제공된 경우, 이를 하나의 연속된 지문이나 관련 문항들로 간주하여 통합된 분석 노트를 작성하라.
+
+**[절대 규칙]**
+1. **반드시 사용자가 제공한 텍스트와 이미지의 내용만을 분석하여 노트를 작성하라.** 
+2. 제공되지 않은 외부 지문이나 임의의 예시 지문을 절대 생성하지 마라. (예: 피드백 관련 지문 등 사용자가 입력하지 않은 내용은 절대 금지)
+3. 입력된 내용이 영어 지문이 아닌 경우, 분석할 수 없다는 메시지를 포함한 HTML을 출력하라.
+4. 여러 장의 이미지나 텍스트가 제공된 경우, 이를 하나의 연속된 지문이나 관련 문항들로 간주하여 통합된 분석 노트를 작성하라.
 
 중요:
 - 최종 출력 결과는 반드시 **하나의 HTML 전체 문서**여야 한다.
@@ -64,22 +69,31 @@ export async function generateStudyNote(
 ---
 
 이제 사용자의 영어 자료를 분석하여, **${mode === "Internal" ? "내신형" : "모의고사형"}** 완성형 HTML 문서 전체 코드를 하나의 html 코드블록 안에 담아 출력하라.
-실제 분석 내용을 충실히 채워 넣어야 하며, 제공된 예시 파일의 디자인과 구성을 완벽하게 재현하라.
+실제 분석 내용을 충실히 채워 넣어야 하며, 위에서 정의한 스타일 가이드를 완벽하게 준수하라.
   `;
+
+  const parts: any[] = [
+    { text: "아래 제공된 자료(텍스트 및 이미지)를 철저히 분석하여 필기 노트를 생성해 주세요. 다른 외부 지문은 절대 참고하지 마세요." }
+  ];
+
+  if (textInput && textInput.trim()) {
+    parts.push({ text: `### 분석 대상 텍스트 시작 ###\n${textInput}\n### 분석 대상 텍스트 끝 ###` });
+  }
+
+  if (imageBuffers.length > 0) {
+    parts.push(...imageBuffers.map((buffer, index) => ({
+      inlineData: {
+        data: buffer.split(",")[1] || buffer,
+        mimeType: mimeTypes[index] || "image/png",
+      },
+    })));
+  }
 
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: MODEL_NAME,
     contents: [
       {
-        parts: [
-          { text: "분석할 이미지들입니다. 여러 장의 이미지가 제공된 경우, 이를 하나의 연속된 지문이나 관련 문항들로 간주하여 통합된 분석 노트를 생성해 주세요. 위 지침에 따라 HTML 필기 노트를 생성해 주세요." },
-          ...imageBuffers.map((buffer, index) => ({
-            inlineData: {
-              data: buffer.split(",")[1] || buffer,
-              mimeType: mimeTypes[index] || "image/png",
-            },
-          })),
-        ],
+        parts: parts,
       },
     ],
     config: {
