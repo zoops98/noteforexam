@@ -11,6 +11,7 @@ import { generateStudyNote, ExamMode } from './services/geminiService';
 export default function App() {
   const [images, setImages] = useState<string[]>([]);
   const [mimeTypes, setMimeTypes] = useState<string[]>([]);
+  const [textInput, setTextInput] = useState<string>('');
   const [mode, setMode] = useState<ExamMode>('Internal');
   const [loading, setLoading] = useState(false);
   const [resultHtml, setResultHtml] = useState<string | null>(null);
@@ -93,7 +94,7 @@ export default function App() {
   };
 
   const handleGenerate = async () => {
-    if (images.length === 0) return;
+    if (images.length === 0 && !textInput.trim()) return;
     
     // Check for API key before generating
     if (window.aistudio && window.aistudio.hasSelectedApiKey) {
@@ -107,7 +108,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const html = await generateStudyNote(images, mimeTypes, mode, customApiKey);
+      const html = await generateStudyNote(images, mimeTypes, mode, customApiKey, textInput);
       // Clean up the response if it contains markdown code blocks
       const cleanedHtml = html.replace(/```html|```/g, '').trim();
       setResultHtml(cleanedHtml);
@@ -263,12 +264,32 @@ export default function App() {
                 multiple
               />
             </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">지문 텍스트 입력</h2>
+                {textInput && (
+                  <button 
+                    onClick={() => setTextInput('')}
+                    className="text-[10px] text-red-500 hover:underline"
+                  >
+                    지우기
+                  </button>
+                )}
+              </div>
+              <textarea
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                placeholder="지문 텍스트를 직접 입력하거나 붙여넣으세요..."
+                className="w-full h-32 p-4 rounded-2xl border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all resize-none text-sm bg-white"
+              />
+            </div>
           </div>
 
           <button 
             onClick={handleGenerate}
-            disabled={images.length === 0 || loading}
-            className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-xl flex-shrink-0 ${images.length === 0 || loading ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200 active:scale-[0.98]'}`}
+            disabled={(images.length === 0 && !textInput.trim()) || loading}
+            className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-xl flex-shrink-0 ${(images.length === 0 && !textInput.trim()) || loading ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200 active:scale-[0.98]'}`}
           >
             {loading ? (
               <>
