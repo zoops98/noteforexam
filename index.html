@@ -5,71 +5,79 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>eng-handwriting-v2-bundle</title>
-    <script id="gemini-aq-compat">
-      (() => {
-        const originalFetch = window.fetch.bind(window);
-        const primaryModel = "gemini-2.5-flash";
-        const fallbackModel = "gemini-3.5-flash";
-        const primaryModelPath = `/models/${primaryModel}:`;
-        const fallbackModelPath = `/models/${fallbackModel}:`;
+    <script id="zoops-gemini-flash-20261113">
+// 2026-12-01 Flash 전환: 저장된 모델/키를 지우지 않고 전송 시 호환한다.
+// 텍스트 Flash만 교체하며 TTS, 이미지 생성, 다른 공급자의 요청은 보존한다.
+(() => {
+  if (window.__zoopsGeminiFlashMigration20261113 || typeof window.fetch !== 'function') return;
+  Object.defineProperty(window, '__zoopsGeminiFlashMigration20261113', { value: true });
+  const nativeFetch = window.fetch.bind(window);
+  const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-        const getRequestUrl = (input) => {
-          if (typeof input === "string") return input;
-          if (input instanceof URL) return input.href;
-          return input.url;
-        };
+  window.fetch = async (input, init) => {
+    let url;
+    try { url = new URL(input instanceof Request ? input.url : String(input), window.location.href); }
+    catch (_) { return nativeFetch(input, init); }
+    const match = url.pathname.match(/^\/v1(?:beta|alpha)?\/models\/(gemini-[\w.-]+):(generateContent|streamGenerateContent)$/);
+    if (url.protocol !== 'https:' || url.hostname !== 'generativelanguage.googleapis.com' || !match) return nativeFetch(input, init);
+    const model = match[1];
+    if (/image|tts|audio|embedding/.test(model)) return nativeFetch(input, init);
+    const migrating = model === 'gemini-2.5-flash';
+    if (!migrating && !/^gemini-[3-9](?:[.-]|$)/.test(model)) return nativeFetch(input, init);
 
-        const getApiKey = (input, init) => {
-          const headers = new Headers(input instanceof Request ? input.headers : undefined);
-          if (init && init.headers) {
-            new Headers(init.headers).forEach((value, name) => headers.set(name, value));
-          }
-          return headers.get("x-goog-api-key") || "";
-        };
+    const request = new Request(input instanceof Request ? input.clone() : url.href, init);
+    if (request.method !== 'POST') return nativeFetch(input, init);
+    let body;
+    try { body = JSON.parse(await request.clone().text()); }
+    catch (_) { return nativeFetch(input, init); }
+    if (!isRecord(body)) return nativeFetch(input, init);
+    if (migrating) url.pathname = url.pathname.replace('/gemini-2.5-flash:', '/gemini-3.5-flash-lite:');
 
-        const shouldRetryWithFallback = async (response) => {
-          if (![400, 401, 403, 404].includes(response.status)) return false;
+    // 키를 URL에 넣던 이전 앱도 헤더 인증으로 전달한다. 키 값은 저장/출력하지 않는다.
+    const headers = new Headers(request.headers);
+    const queryKey = url.searchParams.get('key');
+    if (queryKey && !headers.has('x-goog-api-key')) headers.set('x-goog-api-key', queryKey);
+    url.searchParams.delete('key');
+    headers.delete('content-length');
 
-          let details = "";
-          try {
-            details = (await response.clone().text()).toLowerCase();
-          } catch (_) {
-            return response.status === 404;
-          }
-
-          if (details.includes("api key not valid") || details.includes("invalid api key")) {
-            return false;
-          }
-
-          return response.status === 404 ||
-            /model.{0,160}(not found|not supported|unavailable|permission)/s.test(details) ||
-            details.includes("access_token_type_unsupported") ||
-            details.includes("api_key_service_blocked");
-        };
-
-        window.fetch = async (input, init) => {
-          const requestUrl = getRequestUrl(input);
-          const apiKey = getApiKey(input, init).trim();
-
-          if (!/^AQ\./i.test(apiKey) || !requestUrl.includes(primaryModelPath)) {
-            return originalFetch(input, init);
-          }
-
-          const fallbackUrl = requestUrl.replace(primaryModelPath, fallbackModelPath);
-          const fallbackRequest = input instanceof Request
-            ? new Request(fallbackUrl, input.clone())
-            : null;
-          const response = await originalFetch(input, init);
-
-          if (!(await shouldRetryWithFallback(response))) return response;
-
-          console.warn(`Gemini ${primaryModel} 접근이 제한되어 ${fallbackModel}로 한 번 재시도합니다.`);
-          return fallbackRequest
-            ? originalFetch(fallbackRequest, init)
-            : originalFetch(fallbackUrl, init);
-        };
-
-        const updateApiKeyPlaceholder = () => {
+    if (migrating && !body.generationConfig && !body.generation_config) body.generationConfig = {};
+    for (const name of ['generationConfig', 'generation_config']) {
+      const config = body[name];
+      if (!isRecord(config)) continue;
+      // 여러 답안을 한 답안으로 조용히 줄이지 않는다.
+      if ((config.candidateCount ?? config.candidate_count ?? 1) > 1) {
+        throw new Error('새 Gemini 모델은 한 요청에 한 답안만 지원합니다. 답안 생성 요청을 나누어 주세요.');
+      }
+      for (const key of ['temperature', 'topP', 'topK', 'top_p', 'top_k', 'candidateCount', 'candidate_count']) delete config[key];
+      const thinkingName = name === 'generation_config' ? 'thinking_config' : 'thinkingConfig';
+      const levelName = name === 'generation_config' ? 'thinking_level' : 'thinkingLevel';
+      let hasLevel = false;
+      for (const key of ['thinkingConfig', 'thinking_config']) {
+        const thinking = config[key];
+        if (!isRecord(thinking)) continue;
+        const budget = thinking.thinkingBudget ?? thinking.thinking_budget;
+        delete thinking.thinkingBudget;
+        delete thinking.thinking_budget;
+        if (!thinking.thinkingLevel && !thinking.thinking_level && budget !== undefined) {
+          thinking[key === 'thinking_config' ? 'thinking_level' : 'thinkingLevel'] = budget === 0 ? 'minimal' : 'medium';
+        }
+        hasLevel ||= Boolean(thinking.thinkingLevel || thinking.thinking_level);
+      }
+      // 문제 생성/분석이 minimal 기본값으로 바뀌지 않도록 중간 추론을 명시한다.
+      if (migrating && !hasLevel) {
+        config[thinkingName] = { ...(config[thinkingName] || {}), [levelName]: 'medium' };
+      }
+    }
+    // 프롬프트, 사진/PDF, JSON 스키마, tool 응답, thoughtSignature는 그대로 보낸다.
+    // 새 URL로 Request를 만들되 취소 신호와 요청 옵션은 유지한다.
+    const forwarded = new Request(url.href, request);
+    return nativeFetch(new Request(forwarded, { headers, body: JSON.stringify(body) }));
+  };
+})();
+</script>
+<script id="gemini-key-placeholder">
+(() => {
+  const updateApiKeyPlaceholder = () => {
           document.querySelectorAll('input[placeholder*="AIza"]').forEach((input) => {
             input.placeholder = "AIza... 또는 AQ... 로 시작하는 Gemini API 키를 입력하세요";
           });
